@@ -1,0 +1,7 @@
+# Nix
+result
+result-*
+/.direnv
+
+# `just bs` output
+/*.pdf

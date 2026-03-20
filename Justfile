@@ -1,114 +1,131 @@
 set quiet
 
-src_dir := env_var_or_default("SRC", join(justfile_directory(), "src"))
+slides_dir := "build/slides"
+presentable_dir := "build/presentable"
 
-alias b   := build
-alias bp  := build-presentable
-alias bs  := build-slide
+alias b  := build
+alias bs := build-slide
+alias ba := build-all
+alias bp := build-presentable
 alias bps := build-presentable-slide
 alias bsp := build-presentable-slide
-alias ba  := build-all
 alias bap := build-all-presentable
 alias bpa := build-all-presentable
-
 alias build-slide-presentable := build-presentable-slide
 alias build-presentable-all   := build-all-presentable
+alias w  := watch
+alias ws := watch-slide
+alias wp := watch-presentable
+alias wps := watch-presentable-slide
+alias ss := sync-slides
+alias sp := sync-presentable
+alias h  := help
+alias rd := regenerate-decks
 
-alias h     := help
-alias about := help
-
-[no-cd]
+# Build the default handout deck set
 default:
-  [ -f '{{join(".", "main.md")}}' ] && just build || just build-all
+  just build-all
 
-# Convert input Markdown file to PDF in output_dir
-[no-cd]
-build input=join(".", "main.md") output_dir="." *EXTRA_ARGS="":
+# Build one handout deck or the full handout set
+build deck="":
   #!/usr/bin/env sh
-  if [ ! -f '{{input}}' ]
+  set -eu
+  if [ -z "{{deck}}" ]
   then
-      echo 'Input "{{input}}" does not exist or is not a regular file!' >/dev/stderr
+      nix build
+  else
+      nix build ".#{{deck}}"
+  fi
+
+# Build one presentable deck or the full presentable set
+build-presentable deck="":
+  #!/usr/bin/env sh
+  set -eu
+  if [ -z "{{deck}}" ]
+  then
+      nix build .#presentable
+  else
+      nix build ".#{{deck}}-presentable"
+  fi
+
+# Build the first handout deck whose directory starts with NUMBER
+build-slide number:
+  #!/usr/bin/env sh
+  set -eu
+  deck=$(find decks -maxdepth 1 -mindepth 1 -type d -name '{{number}}*' | sort | head -n 1)
+  if [ -z "$deck" ]
+  then
+      echo "No deck found for prefix {{number}}" >&2
       exit 1
   fi
-  if [ ! -d '{{output_dir}}' ]
+  just build "${deck##*/}"
+
+# Build the first presentable deck whose directory starts with NUMBER
+build-presentable-slide number:
+  #!/usr/bin/env sh
+  set -eu
+  deck=$(find decks -maxdepth 1 -mindepth 1 -type d -name '{{number}}*' | sort | head -n 1)
+  if [ -z "$deck" ]
   then
-      echo 'Output directory "{{output_dir}}" does not exist or is not a directory!' >/dev/stderr
-      exit 2
+      echo "No deck found for prefix {{number}}" >&2
+      exit 1
   fi
+  just build-presentable "${deck##*/}"
 
-  input_dir="{{parent_directory(absolute_path(join(invocation_directory(), input)))}}"
-  cd "$input_dir"
-  output_file="{{absolute_path(join(output_dir, "${input_dir##*/}.pdf"))}}"
-  echo '"{{input}}" -> "'$output_file'"'
+# Build the full handout PDF set
+build-all:
+  nix build
 
-  input_file="{{input}}"
-  input_file="${input_file##*/}"
-  pandoc --pdf-engine=xelatex -t beamer --slide-level=2       \
-         --metadata-file="{{join(src_dir, "metadata.yaml")}}" \
-         -s "$input_file"                                     \
-         -o "$output_file" {{EXTRA_ARGS}}
+# Build the full presentable PDF set
+build-all-presentable:
+  nix build .#presentable
 
-# Like build, but PDF has incremental lists and navigation symbols
-build-presentable input=join(".", "main.md") output_dir=".": (build input output_dir "-i" "-V navigation=horizontal")
-
-# Like build, but take slide number instead of Markdown file
-[no-cd]
-build-slide number output_dir="." *EXTRA_ARGS="": (_build-slide 'build' number output_dir EXTRA_ARGS)
-
-# Like build-presentable, but take slide number instead of Markdown file
-[no-cd]
-build-presentable-slide number output_dir="." *EXTRA_ARGS="": (_build-slide 'build-presentable' number output_dir EXTRA_ARGS)
-
-_build-slide type number output_dir="." *EXTRA_ARGS="":
-  just {{type}} {{join(src_dir, number + "*", "main.md")}} {{output_dir}} {{EXTRA_ARGS}}
-
-# Build all presentations in SRC
-build-all output_dir=join(justfile_directory(), "slides") *EXTRA_ARGS="":
+# Watch a single handout deck into build/slides/DECK.pdf
+watch deck:
   #!/usr/bin/env sh
-  mkdir -p "{{output_dir}}"
-  for presentation in {{join(src_dir, "*", "")}}
-  do
-      just build "${presentation}main.md" "{{output_dir}}" {{EXTRA_ARGS}} || break
-  done
+  set -eu
+  mkdir -p "{{slides_dir}}"
+  nix develop -c watch-slide "{{deck}}" "{{slides_dir}}/{{deck}}.pdf"
 
-# Like build-all, but build-presentable is used for each slide
-build-all-presentable output_dir=join(justfile_directory(), "present"): (build-all output_dir "-i" "-V navigation=horizontal")
+# Watch a single presentable deck into build/presentable/DECK.pdf
+watch-presentable deck:
+  #!/usr/bin/env sh
+  set -eu
+  mkdir -p "{{presentable_dir}}"
+  nix develop -c watch-presentable-slide "{{deck}}" "{{presentable_dir}}/{{deck}}.pdf"
 
+# Watch the first handout deck whose directory starts with NUMBER
+watch-slide number:
+  #!/usr/bin/env sh
+  set -eu
+  nix develop -c watch-slide "{{number}}"
+
+# Watch the first presentable deck whose directory starts with NUMBER
+watch-presentable-slide number:
+  #!/usr/bin/env sh
+  set -eu
+  nix develop -c watch-presentable-slide "{{number}}"
+
+# Build all handout PDFs and copy them into build/slides
+sync-slides:
+  #!/usr/bin/env sh
+  set -eu
+  mkdir -p "{{slides_dir}}"
+  nix build
+  cp -fL result/*.pdf "{{slides_dir}}/"
+
+# Build all presentable PDFs and copy them into build/presentable
+sync-presentable:
+  #!/usr/bin/env sh
+  set -eu
+  mkdir -p "{{presentable_dir}}"
+  nix build .#presentable
+  cp -fL result/*.pdf "{{presentable_dir}}/"
+
+# Re-import and re-convert all deck sources from the legacy markdown repos
+regenerate-decks:
+  nix develop -c python scripts/generate_decks.py
+
+# Show the available commands and their doc comments
 help:
-  #!/usr/bin/env sh
-  bold=$(echo -e '\033[1m')
-  green=$(echo -e '\033[32m')
-  yellow=$(echo -e '\033[33m')
-  res=$(echo -e '\033[0m')
-  cat <<EOF
-  ${bold}${green}RELATIVE TO CURRENT/WORKING DIRECTORY${res}
-
-    ${green}b     ${yellow}[MD_FILE_PATH] [OUTPUT_DIRECTORY]${res}
-    ${green}build ${yellow}[MD_FILE_PATH] [OUTPUT_DIRECTORY]${res}
-        Convert Markdown file to PDF
-
-    ${green}bp                ${yellow}[MD_FILE_PATH] [OUTPUT_DIRECTORY]${res}
-    ${green}build-presentable ${yellow}[MD_FILE_PATH] [OUTPUT_DIRECTORY]${res}
-        Convert Markdown file to PDF, where unordered lists are incremental and
-        bottom-right navbar is inserted
-
-  ${bold}${green}RELATIVE TO REPOSITORY ROOT DIRECTORY${res}
-
-    ${green}bs          ${yellow}[PRESENTATION_NUMBER] [OUTPUT_DIRECTORY]${res}
-    ${green}build-slide ${yellow}[PRESENTATION_NUMBER] [OUTPUT_DIRECTORY]${res}
-        Convert presentation to PDF
-
-    ${green}bsp                     ${yellow}[PRESENTATION_NUMBER] [OUTPUT_DIRECTORY]${res}
-    ${green}build-slide-presentable ${yellow}[PRESENTATION_NUMBER] [OUTPUT_DIRECTORY]${res}
-        Convert presentation to PDF, where unordered lists are incremental and
-        bottom-right navbar is inserted
-
-    ${green}ba        ${yellow}[OUTPUT_DIRECTORY]${res}
-    ${green}build-all ${yellow}[OUTPUT_DIRECTORY]${res}
-        Convert all presentations to PDF files
-
-    ${green}bap                   ${yellow}[OUTPUT_DIRECTORY]${res}
-    ${green}build-all-presentable ${yellow}[OUTPUT_DIRECTORY]${res}
-        Convert all presentations to PDF files, where unordered lists are
-        incremental and bottom-right navbar is inserted
-  EOF
+  @just --justfile {{justfile()}} --list --unsorted

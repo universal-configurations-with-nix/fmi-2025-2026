@@ -1,0 +1,7 @@
+[package]
+name = "ucwn-common"
+version = "0.1.0"
+entrypoint = "lib.typ"
+authors = ["Pavel Atanasov", "Kamen Mladenov"]
+license = "MIT"
+description = "Shared presentation helpers for the UCWN lecture decks."

@@ -1,7 +1,10 @@
-# Nix
+# Nix outputs
 result
 result-*
+
+# Local shell environment
 /.direnv
 
-# `just bs` output
-/*.pdf
+# Generated slide artifacts
+/build/
+/slides/

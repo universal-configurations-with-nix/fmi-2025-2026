@@ -1,0 +1,3 @@
+{
+  typstSource = "main.typ";
+}
